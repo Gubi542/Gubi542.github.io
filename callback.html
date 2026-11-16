@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>授权回调 · 个人制卡助手</title>
+<style>
+  :root{
+    --bg:#f6f9fb; --card:#ffffff; --ink:#1f2937; --muted:#6b7280;
+    --brand:#0e9f8a; --brand-dark:#0b7f6e; --line:#e5e7eb; --err:#b91c1c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);line-height:1.6;min-height:100vh}
+  .wrap{max-width:680px;margin:0 auto;padding:48px 20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px 30px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  h1{font-size:20px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+  .status{font-size:14px;color:var(--muted);margin-bottom:18px}
+  textarea{width:100%;min-height:110px;border:1px solid var(--line);border-radius:8px;padding:12px;font-size:13px;font-family:ui-monospace,Consolas,monospace;background:#fafcfd;word-break:break-all}
+  .btn{display:inline-block;background:var(--brand);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:600;cursor:pointer;margin-top:12px}
+  .btn:hover{background:var(--brand-dark)}
+  .err{color:var(--err);font-size:14px}
+  .row{margin-top:14px;font-size:13px;color:var(--muted)}
+  code{background:#f1f5f9;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>🔐 授权结果</h1>
+    <div class="status" id="status">正在处理授权回调…</div>
+    <div id="result"></div>
+    <p class="row" id="hint" style="display:none">将上方 <code>access_token</code> 完整复制给 AI 助手，即可开始调用墨墨记忆卡 API 制卡。</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  const ISSUER = 'https://accounts.maimemo.com/oidc';
+  const TOKEN_ENDPOINT = ISSUER + '/token';
+  const CLIENT_ID_KEY = 'markji_client_id';
+  const REDIRECT_PATH = '/callback.html';
+
+  const statusEl = document.getElementById('status');
+  const resultEl = document.getElementById('result');
+  const hintEl = document.getElementById('hint');
+
+  function sha256hex(plain){
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(plain))
+      .then(buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join(''));
+  }
+  function b64url(s){
+    return btoa(String.fromCharCode(...new Uint8Array(s)))
+      .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }
+
+  async function exchange(code){
+    const verifier = sessionStorage.getItem('pkce_verifier');
+    const clientId = localStorage.getItem(CLIENT_ID_KEY);
+    if(!verifier || !clientId) throw new Error('缺少 PKCE 状态或 Client ID，请回到主页重新授权');
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: code,
+      redirect_uri: location.origin + REDIRECT_PATH,
+      client_id: clientId,
+      code_verifier: verifier
+    });
+    const resp = await fetch(TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: body.toString()
+    });
+    if(!resp.ok){
+      const txt = await resp.text().catch(()=> '');
+      throw new Error('换取令牌失败 HTTP ' + resp.status + (txt ? ' — ' + txt : ''));
+    }
+    return resp.json();
+  }
+
+  (async function(){
+    const params = new URLSearchParams(location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const err = params.get('error');
+
+    if(err){
+      statusEl.textContent = '授权未完成';
+      resultEl.innerHTML = '<p class="err">错误：' + err + '（' + (params.get('error_description')||'') + '）</p>';
+      return;
+    }
+    if(!code){
+      statusEl.textContent = '回调缺少授权码';
+      resultEl.innerHTML = '<p class="err">URL 中未找到 code 参数。请回到主页重新发起授权。</p>';
+      return;
+    }
+    const savedState = sessionStorage.getItem('pkce_state');
+    if(savedState && state !== savedState){
+      statusEl.textContent = '状态校验失败';
+      resultEl.innerHTML = '<p class="err">state 不匹配，可能授权请求已被篡改。请重新授权。</p>';
+      return;
+    }
+
+    statusEl.textContent = '正在换取访问令牌…';
+    try{
+      const token = await exchange(code);
+      if(!token.access_token) throw new Error('响应中无 access_token');
+      sessionStorage.removeItem('pkce_verifier');
+      sessionStorage.removeItem('pkce_state');
+      statusEl.textContent = '✅ 授权成功';
+      const expiry = token.expires_in ? '（有效期约 ' + Math.round(token.expires_in/3600) + ' 小时）' : '';
+      resultEl.innerHTML =
+        '<p class="row" style="margin-top:0">access_token' + expiry + '：</p>' +
+        '<textarea id="tok" readonly>' + token.access_token + '</textarea>' +
+        '<button class="btn" id="copyBtn">复制 Token</button>';
+      hintEl.style.display = 'block';
+      document.getElementById('copyBtn').addEventListener('click', function(){
+        const t = document.getElementById('tok');
+        t.select(); t.setSelectionRange(0, 999999);
+        document.execCommand('copy') || navigator.clipboard.writeText(t.value);
+        this.textContent = '已复制 ✓';
+        setTimeout(()=>{ this.textContent = '复制 Token'; }, 2000);
+      });
+    }catch(e){
+      statusEl.textContent = '❌ 授权处理失败';
+      resultEl.innerHTML = '<p class="err">' + e.message + '</p>';
+    }
+  })();
+})();
+</script>
+</body>
+</html>
