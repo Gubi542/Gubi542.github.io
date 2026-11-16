@@ -82,9 +82,15 @@
   const ISSUER = 'https://accounts.maimemo.com/oidc';
   const AUTH_ENDPOINT = ISSUER + '/auth';
 
-  function sha256hex(plain){
+  // PKCE: code_challenge = BASE64URL( SHA-256( verifier ) )，必须是 base64url 而非 hex
+  function pkceChallenge(plain){
     return crypto.subtle.digest('SHA-256', new TextEncoder().encode(plain))
-      .then(buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join(''));
+      .then(buf => {
+        const bytes = new Uint8Array(buf);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+      });
   }
   function b64url(s){
     return btoa(String.fromCharCode(...new Uint8Array(s)))
@@ -115,7 +121,7 @@
     const clientId = clientInput.value.trim();
     if(!clientId){ alert('请先在第 1 步粘贴并保存 Client ID'); return; }
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(64)).buffer);
-    const challenge = await sha256hex(verifier);
+    const challenge = await pkceChallenge(verifier);
     sessionStorage.setItem('pkce_verifier', verifier);
     sessionStorage.setItem('pkce_state', randState());
     const state = sessionStorage.getItem('pkce_state');
