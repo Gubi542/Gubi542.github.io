@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>个人制卡助手 · 主页</title>
+<style>
+  :root{
+    --bg:#f6f9fb; --card:#ffffff; --ink:#1f2937; --muted:#6b7280;
+    --brand:#0e9f8a; --brand-dark:#0b7f6e; --line:#e5e7eb; --ok:#16a34a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);line-height:1.6;min-height:100vh}
+  .wrap{max-width:760px;margin:0 auto;padding:40px 20px 60px}
+  header{text-align:center;margin-bottom:36px}
+  .logo{display:inline-flex;align-items:center;gap:10px;font-size:26px;font-weight:700;color:var(--brand)}
+  .logo .badge{font-size:12px;font-weight:600;background:#e6f7f4;color:var(--brand-dark);padding:3px 10px;border-radius:999px}
+  .sub{color:var(--muted);margin-top:8px;font-size:15px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 28px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .card h2{font-size:17px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .card h2 .step{display:inline-flex;width:24px;height:24px;border-radius:50%;background:var(--brand);color:#fff;font-size:13px;align-items:center;justify-content:center;flex:none}
+  label{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
+  input[type=text],input[type=url]{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fafcfd}
+  input:focus{outline:2px solid var(--brand);outline-offset:1px;border-color:transparent}
+  .btn{display:inline-block;background:var(--brand);color:#fff;border:none;border-radius:9px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer;text-decoration:none}
+  .btn:hover{background:var(--brand-dark)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.secondary{background:#fff;color:var(--brand-dark);border:1px solid var(--brand)}
+  .tip{background:#fff7e6;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;font-size:13px;color:#92400e;margin-top:12px}
+  .ok{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;font-size:13px;color:#166534;margin-top:12px;display:none}
+  .muted{color:var(--muted);font-size:13px}
+  code{background:#f1f5f9;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:13px}
+  ol{padding-left:20px}
+  ol li{margin:6px 0;font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">📇 个人制卡助手 <span class="badge">Markji</span></div>
+    <div class="sub">通过墨墨开放平台授权，自动生成墨墨记忆卡内容</div>
+  </header>
+
+  <div class="card">
+    <h2><span class="step">1</span> 配置 Client ID</h2>
+    <label>在墨墨开放平台创建应用并审核通过后，将 OIDC Client ID 粘贴到这里（会保存在本浏览器）</label>
+    <input type="text" id="clientId" placeholder="例如：maimemo_app_xxxxxxxx" autocomplete="off">
+    <button class="btn secondary" id="saveClient" style="margin-top:12px">保存 Client ID</button>
+    <div class="ok" id="saveOk">✅ 已保存</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="step">2</span> 授权登录</h2>
+    <p class="muted" style="margin-bottom:12px">点击下方按钮，跳转到墨墨账号授权。授权范围包含 <code>open.markji.content</code>（墨墨记忆卡内容读写）。</p>
+    <button class="btn" id="authBtn">🔑 授权墨墨账号</button>
+    <div class="tip">尚未获取 Client ID 时无法授权。请先完成第 1 步。</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="step">3</span> 使用方法</h2>
+    <ol>
+      <li>在 <a href="https://open.maimemo.com/app" target="_blank" rel="noopener">墨墨开放平台</a> 创建应用，勾选「墨墨记忆卡内容读写 (open.markji.content)」并提交审核；</li>
+      <li>审核通过后复制 <b>OIDC Client ID</b>，粘贴到上方第 1 步并保存；</li>
+      <li>点击「授权墨墨账号」完成登录授权；</li>
+      <li>授权完成后回调页会显示 <code>access_token</code>，将其复制给 AI 助手即可开始制卡。</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2><span class="step">4</span> 回调地址信息</h2>
+    <p class="muted">以下信息用于在墨墨开放平台填写（本页面的实际地址以浏览器地址栏为准）：</p>
+    <p class="muted" style="margin-top:8px">主页 URL：<code id="homeUrl">—</code></p>
+    <p class="muted">登录回调地址：<code id="cbUrl">—</code></p>
+  </div>
+</div>
+
+<script>
+(function(){
+  const CLIENT_ID_KEY = 'markji_client_id';
+  const REDIRECT_PATH = '/callback.html';
+  const SCOPES = 'openid profile open.markji.content';
+  const ISSUER = 'https://accounts.maimemo.com/oidc';
+  const AUTH_ENDPOINT = ISSUER + '/auth';
+
+  function sha256hex(plain){
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(plain))
+      .then(buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join(''));
+  }
+  function b64url(s){
+    return btoa(String.fromCharCode(...new Uint8Array(s)))
+      .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }
+  function randState(){
+    const a = new Uint8Array(16); crypto.getRandomValues(a);
+    return b64url(a.buffer);
+  }
+  function setRedirect(){
+    const origin = location.origin;
+    document.getElementById('homeUrl').textContent = origin + '/';
+    document.getElementById('cbUrl').textContent = origin + REDIRECT_PATH;
+  }
+  const clientInput = document.getElementById('clientId');
+  const saved = localStorage.getItem(CLIENT_ID_KEY) || '';
+  if(saved){ clientInput.value = saved; }
+
+  document.getElementById('saveClient').addEventListener('click', function(){
+    const v = clientInput.value.trim();
+    if(!v){ alert('请先粘贴 Client ID'); return; }
+    localStorage.setItem(CLIENT_ID_KEY, v);
+    document.getElementById('saveOk').style.display = 'block';
+    setTimeout(()=>{ document.getElementById('saveOk').style.display='none'; }, 2000);
+  });
+
+  document.getElementById('authBtn').addEventListener('click', async function(){
+    const clientId = clientInput.value.trim();
+    if(!clientId){ alert('请先在第 1 步粘贴并保存 Client ID'); return; }
+    const verifier = b64url(crypto.getRandomValues(new Uint8Array(64)).buffer);
+    const challenge = await sha256hex(verifier);
+    sessionStorage.setItem('pkce_verifier', verifier);
+    sessionStorage.setItem('pkce_state', randState());
+    const state = sessionStorage.getItem('pkce_state');
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: location.origin + REDIRECT_PATH,
+      response_type: 'code',
+      scope: SCOPES,
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      state: state
+    });
+    location.href = AUTH_ENDPOINT + '?' + params.toString();
+  });
+
+  setRedirect();
+})();
+</script>
+</body>
+</html>
